@@ -3,12 +3,17 @@ name: Prueba rapida
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   probar:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -17,3 +22,7 @@ jobs:
         env:
           DURACION_SEGUNDOS: "5"
         run: python nube.py
+      - name: Aviso de prueba al movil
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: python -c "import nube; nube.enviar('Vigilante en la nube listo', 'Esta prueba viene desde GitHub: ya puedes apagar el ordenador', 'https://eu.gymshark.com/', 4, 'white_check_mark')"

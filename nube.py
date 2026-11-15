@@ -12,6 +12,7 @@ import re
 import time
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 import requests
@@ -48,8 +49,14 @@ def leer_productos():
         if not linea or linea.startswith("#"):
             continue
         url, _, tallas = linea.partition("|")
+        url = url.strip().split("?")[0]
+        partes = urlparse(url)
+        if partes.scheme != "https" or not (partes.netloc == "gymshark.com"
+                                            or partes.netloc.endswith(".gymshark.com")):
+            log(f"Ignoro una linea que no es de gymshark.com: {url}")
+            continue
         tallas = {t.strip().lower() for t in tallas.split(",") if t.strip()}
-        productos.append((url.strip().split("?")[0], tallas))
+        productos.append((url, tallas))
     return productos
 
 
