@@ -1,0 +1,11 @@
+# Pon aqui los productos de Gymshark a vigilar, uno por linea.
+# Formato:  URL                        -> vigila todas las tallas
+#           URL | s, m                 -> solo esas tallas (xxs, xs, s, m, l, xl, xxl...)
+# Puedes editar este archivo con el vigilante encendido: se relee en cada ronda.
+
+https://eu.gymshark.com/es-ES/products/gymshark-vengeance-t-shirt-ss-tops-black-aw26 | xs, m
+https://eu.gymshark.com/es-ES/products/gymshark-vengeance-t-shirt-ss-tops-grey-aw26 | xs
+https://eu.gymshark.com/es-ES/products/gymshark-collegiate-tech-hoodie-pullovers | xs
+https://eu.gymshark.com/es-ES/products/gymshark-straight-leg-pumper-pants-pants-black-aw25 | xs
+https://eu.gymshark.com/es-ES/products/gymshark-glsc-hoodie-pullovers-blue-aw26 | xs
+https://eu.gymshark.com/es-ES/products/gymshark-onyx-lifting-socks-black-carmine-red-ss25 | m

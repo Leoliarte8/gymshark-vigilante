@@ -1,0 +1,52 @@
+﻿name: Vigilante Gymshark
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/30 * * * *"   # respaldo: si la cadena se corta, vuelve a arrancar
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: vigilante
+  cancel-in-progress: false
+
+jobs:
+  vigilar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install requests tzdata
+
+      - name: Recuperar estado anterior
+        uses: actions/cache/restore@v4
+        with:
+          path: estado.json
+          key: estado-${{ github.run_id }}
+          restore-keys: estado-
+
+      - name: Vigilar
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: python nube.py
+
+      - name: Guardar estado
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: estado.json
+          key: estado-${{ github.run_id }}
+
+      - name: Lanzar la siguiente ejecucion
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run vigilante.yml --repo "${{ github.repository }}" --ref "${{ github.ref_name }}"
