@@ -25,4 +25,5 @@ jobs:
       - name: Aviso de prueba al movil
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
-        run: python -c "import nube; nube.enviar('Vigilante en la nube listo', 'Esta prueba viene desde GitHub: ya puedes apagar el ordenador', 'https://eu.gymshark.com/', 4, 'white_check_mark')"
+        run: |
+          python -c "import nube; nube.enviar('Vigilante en la nube listo', 'Esta prueba viene desde GitHub, ya puedes apagar el ordenador', 'https://eu.gymshark.com/', 4, 'white_check_mark')"
