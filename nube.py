@@ -105,7 +105,10 @@ def descuento_de(sesion, variantes, codigo):
                   texto, re.I)
     if m:
         return float(m.group(1))
-    return 0 if "checkout" in r.url else None
+    # Solo se da por "no vale" si es de verdad la pagina de pago con su bloque de
+    # descuentos; cualquier otra cosa (bloqueo, pagina rara) es "no lo se".
+    es_pago = urlparse(r.url).netloc == "eu.checkout.gymshark.com" and "/checkouts/" in r.url
+    return 0 if es_pago and '"merchandiseDiscount"' in texto else None
 
 
 def enlace_pago(variantes, codigo=""):
