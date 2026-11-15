@@ -96,8 +96,9 @@ def descuento_de(sesion, variantes, codigo):
     try:
         r = sesion.get(enlace_pago(variantes, codigo), timeout=25)
         r.raise_for_status()
-    except Exception as e:
-        log(f"No pude comprobar un codigo: {e}")
+    except Exception as e:   # el mensaje del error lleva el enlace con el codigo: no se muestra
+        estado = getattr(getattr(e, "response", None), "status_code", "")
+        log(f"No pude comprobar un codigo: {type(e).__name__} {estado}".strip())
         return None
     texto = html.unescape(r.text)
     m = re.search(r'"code":"' + re.escape(codigo) + r'"[^{}]*?"value":\{"percentage":([\d.]+)',
