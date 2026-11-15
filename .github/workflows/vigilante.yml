@@ -36,6 +36,8 @@ jobs:
       - name: Vigilar
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          CODIGO_DESCUENTO: ${{ secrets.CODIGO_DESCUENTO }}
+          CODIGO_RESPALDO: ${{ secrets.CODIGO_RESPALDO }}
         run: python nube.py
 
       - name: Guardar estado
