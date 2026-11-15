@@ -143,13 +143,14 @@ def avisar_pedido(info, articulos, avisos):
     faltan = ("\nSin stock (no van): " + ", ".join(nombre_de(info, u, t) for u, t in sin_stock)
               if sin_stock else "")
 
-    codigo_txt = f"con el codigo {CODIGO}" if CODIGO else "sin codigo"
+    # El valor de los codigos nunca se escribe en el registro (es publico) ni en el texto.
+    codigo_txt = "con tu codigo de descuento" if CODIGO else "SIN codigo (ponlo a mano)"
     texto = (f"Esta TODO lo obligatorio. Pulsa para pagar {codigo_txt}:\n{lista}{faltan}")
     log("*** PEDIDO LISTO *** " + texto.replace("\n", " | "))
     avisos.urgente("¡PEDIDO LISTO! Gymshark", texto, enlace_pago(cesta, CODIGO))
     if RESPALDO and RESPALDO != CODIGO:
         enviar("Si el codigo falla: usa este",
-               f"La misma cesta con el codigo {RESPALDO}. Pulsa solo si el otro no funciona.",
+               "La misma cesta con el codigo de respaldo. Pulsa solo si el otro no funciona.",
                enlace_pago(cesta, RESPALDO), 4, "ticket")
 
 
