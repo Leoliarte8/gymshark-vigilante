@@ -21,6 +21,8 @@ jobs:
       - name: Consultar productos una vez
         env:
           DURACION_SEGUNDOS: "5"
+          CODIGO_DESCUENTO: ${{ secrets.CODIGO_DESCUENTO }}
+          CODIGO_RESPALDO: ${{ secrets.CODIGO_RESPALDO }}
         run: python nube.py
       - name: Aviso de prueba al movil
         env:
