@@ -10,6 +10,7 @@ Secretos (nunca van en el codigo):
   CODIGO_DESCUENTO      codigo principal (el de estudiante)
   CODIGO_RESPALDO       codigo por si el principal falla
 """
+import html
 import json
 import os
 import random
@@ -87,6 +88,25 @@ def consultar(sesion, url):
     return p["title"], p["colour"], stock, variantes
 
 
+def descuento_de(sesion, variantes, codigo):
+    """Pregunta al pago de Gymshark si el codigo funciona en esa cesta (sin comprar).
+    Devuelve el porcentaje (p. ej. 15.0), 0 si no vale, o None si no se pudo saber."""
+    if not codigo:
+        return 0
+    try:
+        r = sesion.get(enlace_pago(variantes, codigo), timeout=25)
+        r.raise_for_status()
+    except Exception as e:
+        log(f"No pude comprobar un codigo: {e}")
+        return None
+    texto = html.unescape(r.text)
+    m = re.search(r'"code":"' + re.escape(codigo) + r'"[^{}]*?"value":\{"percentage":([\d.]+)',
+                  texto, re.I)
+    if m:
+        return float(m.group(1))
+    return 0 if "checkout" in r.url else None
+
+
 def enlace_pago(variantes, codigo=""):
     enlace = PAGO + ",".join(f"{v}:1" for v in variantes)
     return enlace + (f"?discount={quote(codigo)}" if codigo else "")
@@ -134,7 +154,24 @@ def nombre_de(info, url, talla):
     return f"{titulo} {color.split('/')[0]} {talla.upper()}"
 
 
-def avisar_pedido(info, articulos, avisos):
+def elegir_codigo(sesion, cesta):
+    """Prueba el codigo principal y, si no vale, el de respaldo.
+    Devuelve (codigo, descripcion). El valor nunca se escribe en el registro."""
+    dudoso = None
+    for codigo, nombre in ((CODIGO, "de estudiante"), (RESPALDO, "de respaldo")):
+        if not codigo:
+            continue
+        pct = descuento_de(sesion, cesta, codigo)
+        if pct:
+            log(f"Codigo {nombre}: funciona ({pct:g} %).")
+            return codigo, f"con el codigo {nombre} ({pct:g} %) ya aplicado"
+        if pct is None and dudoso is None:
+            dudoso = (codigo, f"con el codigo {nombre} (no pude comprobarlo: mira que salga el descuento)")
+        log(f"Codigo {nombre}: {'no se pudo comprobar' if pct is None else 'NO funciona'}.")
+    return dudoso or ("", "SIN codigo: ninguno funciona, ponlo a mano")
+
+
+def avisar_pedido(sesion, info, articulos, avisos):
     obligatorios = [(u, t) for u, t, o in articulos if o]
     opcionales = [(u, t) for u, t, o in articulos if not o and info[u][2].get(t)]
     sin_stock = [(u, t) for u, t, o in articulos if not o and not info[u][2].get(t)]
@@ -143,15 +180,46 @@ def avisar_pedido(info, articulos, avisos):
     faltan = ("\nSin stock (no van): " + ", ".join(nombre_de(info, u, t) for u, t in sin_stock)
               if sin_stock else "")
 
-    # El valor de los codigos nunca se escribe en el registro (es publico) ni en el texto.
-    codigo_txt = "con tu codigo de descuento" if CODIGO else "SIN codigo (ponlo a mano)"
-    texto = (f"Esta TODO lo obligatorio. Pulsa para pagar {codigo_txt}:\n{lista}{faltan}")
+    # Aviso inmediato con el codigo principal (por si comprobarlo tarda), y luego
+    # los repetidos ya con el codigo que de verdad funciona.
+    enviar("¡PEDIDO LISTO! Gymshark", "Esta todo lo obligatorio. Pulsa para pagar.",
+           enlace_pago(cesta, CODIGO or RESPALDO), 5, "rotating_light")
+    codigo, codigo_txt = elegir_codigo(sesion, cesta)
+    texto = f"Esta TODO lo obligatorio. Pulsa para pagar {codigo_txt}:\n{lista}{faltan}"
     log("*** PEDIDO LISTO *** " + texto.replace("\n", " | "))
-    avisos.urgente("¡PEDIDO LISTO! Gymshark", texto, enlace_pago(cesta, CODIGO))
-    if RESPALDO and RESPALDO != CODIGO:
-        enviar("Si el codigo falla: usa este",
-               "La misma cesta con el codigo de respaldo. Pulsa solo si el otro no funciona.",
-               enlace_pago(cesta, RESPALDO), 4, "ticket")
+    avisos.urgente("¡PEDIDO LISTO! Gymshark", texto, enlace_pago(cesta, codigo))
+
+
+class VigilaCodigo:
+    """Cada 30 min comprueba que el codigo de estudiante sigue funcionando."""
+
+    def __init__(self):
+        self.proxima = 0
+        self.funcionaba = True
+
+    def revisar(self, sesion, info, articulos):
+        if not CODIGO or time.time() < self.proxima:
+            return
+        con_stock = [info[u][3][t] for u, t, _ in articulos if u in info and info[u][2].get(t)]
+        if not con_stock:
+            return
+        self.proxima = time.time() + 30 * 60
+        pct = descuento_de(sesion, con_stock[:1], CODIGO)
+        if pct is None:
+            return
+        if pct:
+            log(f"Codigo de estudiante: sigue funcionando ({pct:g} %).")
+            if not self.funcionaba:
+                enviar("Codigo de estudiante OK", f"El codigo vuelve a funcionar ({pct:g} %).",
+                       "https://eu.gymshark.com/", 2, "white_check_mark")
+        else:
+            log("Codigo de estudiante: YA NO FUNCIONA.")
+            if self.funcionaba:
+                enviar("Tu codigo de estudiante ha caducado",
+                       "Genera otro y pasaselo a Claude (o cambia el secreto CODIGO_DESCUENTO). "
+                       "Mientras, el pedido usara el codigo de respaldo.",
+                       "https://eu.gymshark.com/", 2, "warning")
+        self.funcionaba = bool(pct)
 
 
 def main():
@@ -165,6 +233,7 @@ def main():
     except Exception:
         anterior, pedido_avisado = {}, False
     avisos = Avisos()
+    vigila_codigo = VigilaCodigo()
     fin = time.time() + DURACION
     errores_seguidos = 0
     log(f"Vigilante en marcha. Codigo: {'si' if CODIGO else 'NO'} | "
@@ -209,7 +278,8 @@ def main():
 
             listo = all(info[u][2].get(t) for u, t, o in articulos if o)
             if listo and not pedido_avisado:
-                avisar_pedido(info, articulos, avisos)
+                avisar_pedido(sesion, info, articulos, avisos)
+            vigila_codigo.revisar(sesion, info, articulos)
             pedido_avisado = listo
             anterior = {u: info[u][2] for u in info}
             ARCHIVO_ESTADO.write_text(json.dumps(
