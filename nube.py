@@ -393,15 +393,28 @@ class VigilaCodigo:
         self.funcionaba = bool(pct)
 
 
+LATIDO_CADA = 30 * 60   # aviso de "sigo vivo" (solo de dia)
+
+
+def latido(info, articulos):
+    """Aviso de prioridad minima para saber que el vigilante sigue funcionando."""
+    lineas = [("✅ " if info[u][2].get(t) else "❌ ") + nombre_de(info, u, t)
+              + ("" if o else " (opc.)") for u, t, o in articulos]
+    log("Latido: sigo vigilando.")
+    enviar(f"Sigo vigilando · {ahora():%H:%M}", "\n".join(lineas),
+           "https://github.com/Leoliarte8/gymshark-vigilante/actions", 1, "green_heart")
+
+
 def main():
     sesion = requests.Session()
     sesion.headers.update({"User-Agent": UA, "Accept-Language": "es-ES,es;q=0.9"})
     try:
         estado = json.loads(ARCHIVO_ESTADO.read_text(encoding="utf-8"))
         anterior = estado.get("stock", {})
+        ultimo_latido = estado.get("latido", 0)
         log("Estado anterior recuperado.")
     except Exception:
-        anterior = {}
+        anterior, ultimo_latido = {}, 0
     avisos = Avisos()
     vigila_codigo = VigilaCodigo()
     fin = time.time() + DURACION
@@ -464,8 +477,12 @@ def main():
                                "Es obligatorio: el pedido tendra que esperar.", u, 2, "x")
 
             vigila_codigo.revisar(sesion, info, articulos)
+            if time.time() - ultimo_latido >= LATIDO_CADA and not es_de_noche():
+                ultimo_latido = time.time()
+                latido(info, articulos)
             anterior = {u: info[u][2] for u in info}
-            ARCHIVO_ESTADO.write_text(json.dumps({"stock": anterior}), encoding="utf-8")
+            ARCHIVO_ESTADO.write_text(json.dumps({"stock": anterior, "latido": ultimo_latido}),
+                                      encoding="utf-8")
 
         espera = time.time() + INTERVALO + random.uniform(0, 8)
         while time.time() < espera:
