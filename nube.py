@@ -401,9 +401,12 @@ def latido(info, articulos):
     """Aviso de prioridad minima para saber que el vigilante sigue funcionando."""
     def unidades(u, t):
         n = info[u][5].get(t)
-        if not isinstance(n, (int, float)):
+        if isinstance(n, bool) or not isinstance(n, (int, float)):
             return ""
-        return f" · {max(int(n), 0)} uds"
+        try:
+            return f" · {max(int(n), 0)} uds"
+        except (ValueError, OverflowError):
+            return ""
 
     lineas = [("✅ " if info[u][2].get(t) else "❌ ") + nombre_de(info, u, t)
               + unidades(u, t) + ("" if o else " (opc.)") for u, t, o in articulos]
@@ -486,7 +489,10 @@ def main():
             vigila_codigo.revisar(sesion, info, articulos)
             if time.time() - ultimo_latido >= LATIDO_CADA and not es_de_noche():
                 ultimo_latido = time.time()
-                latido(info, articulos)
+                try:   # el aviso de "sigo vivo" nunca debe parar la vigilancia
+                    latido(info, articulos)
+                except Exception as e:
+                    log(f"No pude mandar el aviso de 'sigo vivo': {type(e).__name__}")
             anterior = {u: info[u][2] for u in info}
             ARCHIVO_ESTADO.write_text(json.dumps({"stock": anterior, "latido": ultimo_latido}),
                                       encoding="utf-8")
