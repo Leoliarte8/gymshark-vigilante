@@ -178,7 +178,7 @@ def enviar_urgente(titulo, texto, url):
 TELEGRAM = os.environ.get("TELEGRAM_USUARIO", "").strip()
 LLAMADAS_MAX = 5
 LLAMADAS_CADA = 120   # segundos entre llamadas hechas
-REINTENTO_LLAMADA = 20   # segundos si CallMeBot se salta la llamada (saturado)
+REINTENTO_LLAMADA = 45   # segundos si CallMeBot se salta la llamada (saturado)
 
 
 def llamar(texto):
@@ -192,7 +192,8 @@ def llamar(texto):
     except Exception as e:   # el error podria llevar el usuario en la URL: no se muestra
         log(f"No se pudo pedir la llamada de Telegram: {type(e).__name__}")
         return False
-    if r.status_code != 200 or "Error" in r.text or "skipped" in r.text:
+    fallo = ("Error", "skipped", "Oops", "Too many", "not authorized", "Not Authorized")
+    if r.status_code != 200 or any(f in r.text for f in fallo) or "Starting" not in r.text:
         motivo = "saturado (FLOOD)" if "FLOOD" in r.text else f"respuesta {r.status_code}"
         log(f"CallMeBot no ha hecho la llamada: {motivo}. Reintento enseguida.")
         return False
@@ -245,7 +246,7 @@ class Avisos:
                     if llamar(self.texto_llamada):
                         self.llamadas += 1
                         self.proxima_llamada = time.time() + LLAMADAS_CADA
-                    elif self.intentos >= 25:   # CallMeBot no responde: lo dejo (ntfy sigue)
+                    elif self.intentos >= 12:   # CallMeBot no responde: lo dejo (ntfy sigue)
                         self.llamadas = LLAMADAS_MAX
                     else:
                         self.proxima_llamada = time.time() + REINTENTO_LLAMADA
