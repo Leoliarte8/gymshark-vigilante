@@ -116,6 +116,9 @@ def enlace_pago(variantes, codigo=""):
     return enlace + (f"?discount={quote(codigo)}" if codigo else "")
 
 
+RAFAGA = 3   # avisos seguidos en cada repeticion de noche
+
+
 def canal_parar():
     """Canal al que el boton "parar" del movil manda un mensaje."""
     return CANAL + "-parar"
@@ -169,7 +172,8 @@ class Avisos:
         self.desde = 0         # cuando empezo la tanda de avisos actual
 
     def urgente(self, titulo, texto, url):
-        total, pausa = (10, 45) if es_de_noche() else (5, 60)
+        # De noche: rafagas de 3 avisos cada 20 s durante 10 min (hasta que pulses parar).
+        total, pausa = (30, 20) if es_de_noche() else (5, 60)
         if not self.pendientes:
             self.desde = time.time() - 30   # incluye el aviso inmediato previo
         self.pendientes.append([time.time(), titulo, texto, url, 1, total, pausa])
@@ -183,8 +187,11 @@ class Avisos:
             return
         for a in listos:
             momento, titulo, texto, url, n, total, pausa = a
-            extra = f" (aviso {n}/{total})" if n > 1 else ""
-            enviar_urgente(titulo, texto + extra, url)
+            extra = f" (aviso {n}/{total}, pulsa parar para callarlo)" if n > 1 else ""
+            for i in range(RAFAGA if es_de_noche() else 1):   # varias vibraciones seguidas
+                if i:
+                    time.sleep(1.5)
+                enviar_urgente(titulo, texto + extra, url)
             if n >= total:
                 self.pendientes.remove(a)
             else:
