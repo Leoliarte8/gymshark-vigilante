@@ -175,23 +175,55 @@ def elegir_codigo(sesion, cesta):
     return dudoso or ("", "SIN codigo: ninguno funciona, ponlo a mano")
 
 
-def avisar_pedido(sesion, info, articulos, avisos):
-    obligatorios = [(u, t) for u, t, o in articulos if o]
-    opcionales = [(u, t) for u, t, o in articulos if not o and info[u][2].get(t)]
-    sin_stock = [(u, t) for u, t, o in articulos if not o and not info[u][2].get(t)]
-    cesta = [info[u][3][t] for u, t in obligatorios + opcionales]
-    lista = "\n".join("• " + nombre_de(info, u, t) for u, t in obligatorios + opcionales)
-    faltan = ("\nSin stock (no van): " + ", ".join(nombre_de(info, u, t) for u, t in sin_stock)
-              if sin_stock else "")
+# Avisos urgentes (dia y noche), por orden de importancia. Cada uno salta cuando
+# su condicion pasa de no cumplirse a cumplirse. Una condicion es una lista de
+# (trozo de la URL del producto, talla) que tienen que tener stock A LA VEZ;
+# None = todos los obligatorios de productos.txt.
+URGENTES = [
+    ("¡PEDIDO COMPLETO! Gymshark", "Esta todo lo importante a la vez", None),
+    ("¡Ha vuelto la Vengeance negra!", "Vengeance negra XS repuesta",
+     [("vengeance-t-shirt-ss-tops-black", "xs")]),
+    ("¡Ha vuelto la Vengeance gris!", "Vengeance gris XS repuesta",
+     [("vengeance-t-shirt-ss-tops-grey", "xs")]),
+    ("¡Pantalon y Collegiate a la vez!", "Pumper Pants XS y Collegiate Tech Hoodie XS con stock",
+     [("straight-leg-pumper-pants", "xs"), ("collegiate-tech-hoodie", "xs")]),
+]
+
+
+def condicion_cumplida(condicion, articulos, stock_de):
+    """stock_de(url, talla) -> True/False/None. Devuelve True/False, o None si falta algun dato."""
+    if condicion is None:
+        elegidos = [(u, t) for u, t, o in articulos if o]
+    else:
+        elegidos = [(u, t) for u, t, _ in articulos
+                    if any(trozo in u and t == talla for trozo, talla in condicion)]
+    if not elegidos:
+        return False
+    valores = [stock_de(u, t) for u, t in elegidos]
+    if any(v is None for v in valores):
+        return None
+    return all(valores)
+
+
+def avisar_urgente(sesion, info, articulos, avisos, titulo, motivos):
+    """Aviso urgente con la cesta preparada: todo lo vigilado que tenga stock ahora."""
+    en_cesta = [(u, t) for u, t, _ in articulos if info[u][2].get(t)]
+    faltan = [(u, t, o) for u, t, o in articulos if not info[u][2].get(t)]
+    cesta = [info[u][3][t] for u, t in en_cesta]
+    lista = "\n".join("• " + nombre_de(info, u, t) for u, t in en_cesta)
+    faltan_txt = ""
+    if faltan:
+        faltan_txt = "\nSin stock: " + ", ".join(
+            nombre_de(info, u, t) + ("" if o else " (opcional)") for u, t, o in faltan)
 
     # Aviso inmediato con el codigo principal (por si comprobarlo tarda), y luego
     # los repetidos ya con el codigo que de verdad funciona.
-    enviar("¡PEDIDO LISTO! Gymshark", "Esta todo lo obligatorio. Pulsa para pagar.",
+    enviar(titulo, motivos + ". Pulsa para pagar.",
            enlace_pago(cesta, CODIGO or RESPALDO), 5, "rotating_light")
     codigo, codigo_txt = elegir_codigo(sesion, cesta)
-    texto = f"Esta TODO lo obligatorio. Pulsa para pagar {codigo_txt}:\n{lista}{faltan}"
-    log("*** PEDIDO LISTO *** " + texto.replace("\n", " | "))
-    avisos.urgente("¡PEDIDO LISTO! Gymshark", texto, enlace_pago(cesta, codigo))
+    texto = f"{motivos}. Cesta preparada {codigo_txt}:\n{lista}{faltan_txt}"
+    log(f"*** {titulo} *** " + texto.replace("\n", " | "))
+    avisos.urgente(titulo, texto, enlace_pago(cesta, codigo))
 
 
 class VigilaCodigo:
@@ -214,10 +246,13 @@ class VigilaCodigo:
         if pct:
             log(f"Codigo de estudiante: sigue funcionando ({pct:g} %).")
             if not self.funcionaba:
-                enviar("Codigo de estudiante OK", f"El codigo vuelve a funcionar ({pct:g} %).",
-                       "https://eu.gymshark.com/", 2, "white_check_mark")
+                if not es_de_noche():
+                    enviar("Codigo de estudiante OK", f"El codigo vuelve a funcionar ({pct:g} %).",
+                           "https://eu.gymshark.com/", 2, "white_check_mark")
         else:
             log("Codigo de estudiante: YA NO FUNCIONA.")
+            if es_de_noche():
+                return   # se volvera a mirar y avisar de dia (no se marca como avisado)
             if self.funcionaba:
                 enviar("Tu codigo de estudiante ha caducado",
                        "Genera otro y pasaselo a Claude (o cambia el secreto CODIGO_DESCUENTO). "
@@ -232,14 +267,13 @@ def main():
     try:
         estado = json.loads(ARCHIVO_ESTADO.read_text(encoding="utf-8"))
         anterior = estado.get("stock", {})
-        pedido_avisado = estado.get("pedido_avisado", False)
         log("Estado anterior recuperado.")
     except Exception:
-        anterior, pedido_avisado = {}, False
+        anterior = {}
     avisos = Avisos()
     vigila_codigo = VigilaCodigo()
     fin = time.time() + DURACION
-    errores_seguidos = 0
+    errores_seguidos, problema_avisado = 0, False
     log(f"Vigilante en marcha. Codigo: {'si' if CODIGO else 'NO'} | "
         f"respaldo: {'si' if RESPALDO else 'NO'}")
 
@@ -249,11 +283,12 @@ def main():
         for url in dict.fromkeys(u for u, _, _ in articulos):
             try:
                 info[url] = consultar(sesion, url)
-                errores_seguidos = 0
+                errores_seguidos, problema_avisado = 0, False
             except Exception as e:
                 errores_seguidos += 1
                 log(f"Error con {url}: {e}")
-                if errores_seguidos == 20:
+                if errores_seguidos >= 20 and not problema_avisado and not es_de_noche():
+                    problema_avisado = True
                     enviar("Vigilante Gymshark: problema",
                            f"Gymshark esta rechazando las consultas desde la nube ({e}).",
                            "https://eu.gymshark.com/", 3, "warning")
@@ -261,6 +296,22 @@ def main():
             time.sleep(1.5)
 
         if all(u in info for u, _, _ in articulos):   # solo decide con datos completos
+            # 1) Avisos urgentes: se manda solo el mas importante de los que salten.
+            disparados = []
+            for titulo, motivo, condicion in URGENTES:
+                ahora_si = condicion_cumplida(condicion, articulos,
+                                              lambda u, t: info[u][2].get(t, False))
+                antes_si = condicion_cumplida(condicion, articulos,
+                                              lambda u, t: anterior.get(u, {}).get(t))
+                if ahora_si and antes_si is False:
+                    disparados.append((titulo, motivo))
+            if disparados:
+                completo = disparados[0][0] == URGENTES[0][0]
+                motivos = disparados[0][1] if completo else " + ".join(m for _, m in disparados)
+                avisar_urgente(sesion, info, articulos, avisos, disparados[0][0], motivos)
+
+            # 2) Avisos discretos: solo de dia y si no ha saltado uno urgente.
+            discretos = not disparados and not es_de_noche()
             for u, t, o in articulos:
                 antes = anterior.get(u, {}).get(t)
                 ahora_hay = info[u][2].get(t, False)
@@ -271,23 +322,18 @@ def main():
                     log(f"Repuesto: {nombre_de(info, u, t)}")
                     pendientes = [nombre_de(info, x, y) for x, y, z in articulos
                                   if z and not info[x][2].get(y)]
-                    if pendientes:   # aviso discreto: aun no se puede hacer el pedido
+                    if pendientes and discretos:
                         enviar(f"Repuesto: {nombre_de(info, u, t)}",
                                "Aun faltan: " + ", ".join(pendientes), u, 2, "eyes")
                 elif antes and not ahora_hay:
                     log(f"Agotado: {nombre_de(info, u, t)}")
-                    if o:
+                    if o and discretos:
                         enviar(f"Se ha agotado: {nombre_de(info, u, t)}",
                                "Es obligatorio: el pedido tendra que esperar.", u, 2, "x")
 
-            listo = all(info[u][2].get(t) for u, t, o in articulos if o)
-            if listo and not pedido_avisado:
-                avisar_pedido(sesion, info, articulos, avisos)
             vigila_codigo.revisar(sesion, info, articulos)
-            pedido_avisado = listo
             anterior = {u: info[u][2] for u in info}
-            ARCHIVO_ESTADO.write_text(json.dumps(
-                {"stock": anterior, "pedido_avisado": pedido_avisado}), encoding="utf-8")
+            ARCHIVO_ESTADO.write_text(json.dumps({"stock": anterior}), encoding="utf-8")
 
         espera = time.time() + INTERVALO + random.uniform(0, 8)
         while time.time() < espera:
