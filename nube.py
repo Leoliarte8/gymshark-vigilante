@@ -87,7 +87,8 @@ def consultar(sesion, url):
     stock = {v["size"].lower(): bool(v["inStock"]) for v in p["availableSizes"]}
     variantes = {v["size"].lower(): v["id"] for v in p["availableSizes"]}
     precios = {v["size"].lower(): _precio(v, p) for v in p["availableSizes"]}
-    return p["title"], p["colour"], stock, variantes, precios
+    unidades = {v["size"].lower(): v.get("inventoryQuantity") for v in p["availableSizes"]}
+    return p["title"], p["colour"], stock, variantes, precios, unidades
 
 
 def _precio(v, p):
@@ -398,8 +399,14 @@ LATIDO_CADA = 30 * 60   # aviso de "sigo vivo" (solo de dia)
 
 def latido(info, articulos):
     """Aviso de prioridad minima para saber que el vigilante sigue funcionando."""
+    def unidades(u, t):
+        n = info[u][5].get(t)
+        if not isinstance(n, (int, float)):
+            return ""
+        return f" · {max(int(n), 0)} uds"
+
     lineas = [("✅ " if info[u][2].get(t) else "❌ ") + nombre_de(info, u, t)
-              + ("" if o else " (opc.)") for u, t, o in articulos]
+              + unidades(u, t) + ("" if o else " (opc.)") for u, t, o in articulos]
     log("Latido: sigo vigilando.")
     enviar(f"Sigo vigilando · {ahora():%H:%M}", "\n".join(lineas),
            "https://github.com/Leoliarte8/gymshark-vigilante/actions", 1, "green_heart")
