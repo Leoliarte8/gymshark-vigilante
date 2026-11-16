@@ -116,37 +116,75 @@ def enlace_pago(variantes, codigo=""):
     return enlace + (f"?discount={quote(codigo)}" if codigo else "")
 
 
-def enviar(titulo, texto, url, prioridad, etiqueta):
+def canal_parar():
+    """Canal al que el boton "parar" del movil manda un mensaje."""
+    return CANAL + "-parar"
+
+
+def acciones_urgentes(url):
+    return [
+        {"action": "view", "label": "Abrir cesta", "url": url},
+        {"action": "view", "label": "Ya estoy despierto, parar",
+         "url": f"https://ntfy.sh/{canal_parar()}/publish?message=parar", "clear": True},
+    ]
+
+
+def enviar(titulo, texto, url, prioridad, etiqueta, acciones=None):
     if not CANAL:
         log("Falta el secreto NTFY_TOPIC: no puedo avisar al movil.")
         return
+    datos = {"topic": CANAL, "title": titulo, "message": texto, "click": url,
+             "priority": prioridad, "tags": [etiqueta]}
+    if acciones:
+        datos["actions"] = acciones
     try:
-        requests.post("https://ntfy.sh/", timeout=10, json={
-            "topic": CANAL, "title": titulo, "message": texto, "click": url,
-            "priority": prioridad, "tags": [etiqueta],
-        }).raise_for_status()
+        requests.post("https://ntfy.sh/", timeout=10, json=datos).raise_for_status()
     except Exception as e:
-        log(f"No se pudo avisar al movil: {e}")
+        log(f"No se pudo avisar al movil: {type(e).__name__}")
+
+
+def han_pedido_parar(desde):
+    """True si desde el movil se ha pulsado "parar" despues de 'desde'."""
+    if not CANAL:
+        return False
+    try:
+        r = requests.get(f"https://ntfy.sh/{canal_parar()}/json",
+                         params={"poll": "1", "since": str(int(desde))}, timeout=10)
+        r.raise_for_status()
+        return any('"event":"message"' in linea for linea in r.text.splitlines())
+    except Exception as e:
+        log(f"No pude mirar si has pedido parar: {type(e).__name__}")
+        return False
+
+
+def enviar_urgente(titulo, texto, url):
+    enviar(titulo, texto, url, 5, "rotating_light", acciones_urgentes(url))
 
 
 class Avisos:
-    """Aviso urgente repetido sin frenar la vigilancia."""
+    """Aviso urgente repetido sin frenar la vigilancia (se puede parar desde el movil)."""
 
     def __init__(self):
         self.pendientes = []   # [momento, titulo, texto, url, numero, total, pausa]
+        self.desde = 0         # cuando empezo la tanda de avisos actual
 
     def urgente(self, titulo, texto, url):
         total, pausa = (10, 45) if es_de_noche() else (5, 60)
+        if not self.pendientes:
+            self.desde = time.time() - 30   # incluye el aviso inmediato previo
         self.pendientes.append([time.time(), titulo, texto, url, 1, total, pausa])
         self.procesar()
 
     def procesar(self):
-        for a in list(self.pendientes):
+        listos = [a for a in self.pendientes if time.time() >= a[0]]
+        if any(a[4] > 1 for a in listos) and han_pedido_parar(self.desde):
+            log("Has pulsado parar en el movil: dejo de repetir los avisos.")
+            self.pendientes.clear()
+            return
+        for a in listos:
             momento, titulo, texto, url, n, total, pausa = a
-            if time.time() < momento:
-                continue
             extra = f" (aviso {n}/{total})" if n > 1 else ""
-            enviar(titulo, texto + extra, url, 5, "rotating_light")
+            enviar_urgente(titulo, texto + extra, url)
             if n >= total:
                 self.pendientes.remove(a)
             else:
@@ -218,8 +256,7 @@ def avisar_urgente(sesion, info, articulos, avisos, titulo, motivos):
 
     # Aviso inmediato con el codigo principal (por si comprobarlo tarda), y luego
     # los repetidos ya con el codigo que de verdad funciona.
-    enviar(titulo, motivos + ". Pulsa para pagar.",
-           enlace_pago(cesta, CODIGO or RESPALDO), 5, "rotating_light")
+    enviar_urgente(titulo, motivos + ". Pulsa para pagar.", enlace_pago(cesta, CODIGO or RESPALDO))
     codigo, codigo_txt = elegir_codigo(sesion, cesta)
     texto = f"{motivos}. Cesta preparada {codigo_txt}:\n{lista}{faltan_txt}"
     log(f"*** {titulo} *** " + texto.replace("\n", " | "))
