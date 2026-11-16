@@ -1,0 +1,50 @@
+name: Guardian del vigilante
+
+# Cada 30 min comprueba que el vigilante esta en marcha. Si no lo esta,
+# te avisa al movil (tambien de noche) y lo vuelve a arrancar.
+on:
+  schedule:
+    - cron: "15,45 * * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  comprobar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Comprobar que el vigilante sigue vivo
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          activos() {
+            gh run list --repo "$REPO" --workflow vigilante.yml --limit 5 \
+              --json status --jq '[.[] | select(.status=="in_progress" or .status=="queued")] | length'
+          }
+          n=$(activos)
+          if [ "$n" -gt 0 ]; then echo "El vigilante esta en marcha."; exit 0; fi
+          # Puede estar cambiando de turno: lo vuelvo a mirar en 90 s
+          sleep 90
+          n=$(activos)
+          if [ "$n" -gt 0 ]; then echo "Estaba cambiando de turno; todo bien."; exit 0; fi
+
+          echo "El vigilante NO esta en marcha: aviso y lo arranco."
+          gh workflow run vigilante.yml --repo "$REPO" || true
+          python3 - <<'EOF'
+          import json, os, urllib.request
+          datos = {
+              "topic": os.environ["NTFY_TOPIC"],
+              "title": "⚠️ El vigilante de Gymshark se habia parado",
+              "message": "Lo he vuelto a arrancar. Si este aviso se repite, algo falla: mira GitHub.",
+              "click": "https://github.com/" + os.environ["REPO"] + "/actions",
+              "priority": 4, "tags": ["warning"],
+          }
+          req = urllib.request.Request("https://ntfy.sh/", data=json.dumps(datos).encode(),
+                                       headers={"Content-Type": "application/json"})
+          urllib.request.urlopen(req, timeout=15)
+          EOF

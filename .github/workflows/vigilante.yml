@@ -38,7 +38,10 @@ jobs:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           CODIGO_DESCUENTO: ${{ secrets.CODIGO_DESCUENTO }}
           CODIGO_RESPALDO: ${{ secrets.CODIGO_RESPALDO }}
-          TELEGRAM_USUARIO: ${{ secrets.TELEGRAM_USUARIO }}
+          TWILIO_SID: ${{ secrets.TWILIO_SID }}
+          TWILIO_TOKEN: ${{ secrets.TWILIO_TOKEN }}
+          TWILIO_DESDE: ${{ secrets.TWILIO_DESDE }}
+          TELEFONO: ${{ secrets.TELEFONO }}
         run: python nube.py
 
       - name: Guardar estado

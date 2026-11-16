@@ -175,36 +175,43 @@ def enviar_urgente(titulo, texto, url):
     enviar(titulo, texto, url, 5, "rotating_light", acciones_urgentes(url))
 
 
-# Llamada de Telegram (CallMeBot, gratis): vibra sin parar mientras suena.
-TELEGRAM = os.environ.get("TELEGRAM_USUARIO", "").strip()
+# Llamada de telefono de verdad (Twilio): vibra sin parar mientras suena.
+# Secretos: TWILIO_SID, TWILIO_TOKEN, TWILIO_DESDE (numero de Twilio), TELEFONO (el tuyo).
+TWILIO_SID = os.environ.get("TWILIO_SID", "").strip()
+TWILIO_TOKEN = os.environ.get("TWILIO_TOKEN", "").strip()
+TWILIO_DESDE = os.environ.get("TWILIO_DESDE", "").strip()
+TELEFONO = os.environ.get("TELEFONO", "").strip()
+LLAMADAS_ACTIVAS = all((TWILIO_SID, TWILIO_TOKEN, TWILIO_DESDE, TELEFONO))
 LLAMADAS_MAX = 5
-LLAMADAS_CADA = 120   # segundos entre llamadas hechas
-REINTENTO_LLAMADA = 45   # segundos si CallMeBot se salta la llamada (saturado)
+LLAMADAS_CADA = 120   # segundos entre llamadas (2 llamadas en <3 min saltan el modo descanso)
+REINTENTO_LLAMADA = 45   # segundos si la llamada no se pudo pedir
 
 
 def llamar(texto):
-    """Devuelve True si CallMeBot ha hecho la llamada; False si la ha saltado o fallo."""
-    if not TELEGRAM:
+    """Pide a Twilio que llame a tu movil. True si la ha aceptado."""
+    if not LLAMADAS_ACTIVAS:
         return True
+    voz = html.escape(texto[:300])
+    twiml = (f'<Response><Say language="es-ES">{voz}</Say><Pause length="2"/>'
+             f'<Say language="es-ES">{voz}</Say></Response>')
     try:
-        r = requests.get("https://api.callmebot.com/start.php", timeout=60, params={
-            "user": TELEGRAM, "text": texto[:250], "lang": "es-ES-Standard-A",
-            "rpt": "3", "cc": "missed"})
-    except Exception as e:   # el error podria llevar el usuario en la URL: no se muestra
-        log(f"No se pudo pedir la llamada de Telegram: {type(e).__name__}")
+        r = requests.post(
+            f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_SID}/Calls.json",
+            auth=(TWILIO_SID, TWILIO_TOKEN), timeout=30,
+            data={"To": TELEFONO, "From": TWILIO_DESDE, "Twiml": twiml, "Timeout": "60"})
+    except Exception as e:   # sin detalles: podrian llevar datos de la cuenta
+        log(f"No se pudo pedir la llamada: {type(e).__name__}")
         return False
-    fallo = ("Error", "skipped", "Oops", "Too many", "not authorized", "Not Authorized")
-    if r.status_code != 200 or any(f in r.text for f in fallo) or "Starting" not in r.text:
-        motivo = "saturado (FLOOD)" if "FLOOD" in r.text else f"respuesta {r.status_code}"
-        log(f"CallMeBot no ha hecho la llamada: {motivo}. Reintento enseguida.")
+    if r.status_code not in (200, 201):
+        log(f"Twilio no ha aceptado la llamada (respuesta {r.status_code}).")
         return False
-    log("Llamada de Telegram hecha.")
+    log("Llamada de telefono pedida.")
     return True
 
 
 class Avisos:
     """Aviso urgente repetido sin frenar la vigilancia (se puede parar desde el movil).
-    De noche, ademas, llamadas de Telegram cada 2 min hasta que pulses parar."""
+    De noche, ademas, llamadas de telefono cada 2 min hasta que pulses parar."""
 
     def __init__(self):
         self.pendientes = []   # [momento, titulo, texto, url, numero, total, pausa]
@@ -394,6 +401,40 @@ class VigilaCodigo:
         self.funcionaba = bool(pct)
 
 
+POCAS_UNIDADES = 15   # aviso cuando algo con stock baja de estas unidades
+
+
+def unidades_de(info, u, t):
+    """Unidades que quedan, o None si Gymshark no da una cifra valida."""
+    n = info[u][5].get(t)
+    if isinstance(n, bool) or not isinstance(n, (int, float)):
+        return None
+    try:
+        return max(int(n), 0)
+    except (ValueError, OverflowError):
+        return None
+
+
+def revisar_pocas_unidades(info, articulos, avisadas):
+    """Avisa (una vez) cuando algo de la lista con stock baja de POCAS_UNIDADES.
+    De noche no avisa: lo hara por la manana si sigue igual."""
+    for u, t, o in articulos:
+        clave = f"{u}|{t}"
+        n = unidades_de(info, u, t)
+        if n is None:
+            continue
+        if not info[u][2].get(t) or n >= POCAS_UNIDADES:
+            avisadas.discard(clave)   # se ha agotado o se ha repuesto: se puede volver a avisar
+            continue
+        if clave in avisadas or es_de_noche():
+            continue
+        avisadas.add(clave)
+        log(f"Quedan pocas: {nombre_de(info, u, t)} ({n})")
+        enviar(f"⏳ Quedan pocas: {nombre_de(info, u, t)}",
+               f"Solo quedan {n} unidades{'' if o else ' (es opcional)'}. "
+               "Si lo quieres asegurar, compralo ya.", u, 4, "hourglass")
+
+
 LATIDO_CADA = 30 * 60   # aviso de "sigo vivo" (solo de dia)
 
 
@@ -422,9 +463,10 @@ def main():
         estado = json.loads(ARCHIVO_ESTADO.read_text(encoding="utf-8"))
         anterior = estado.get("stock", {})
         ultimo_latido = estado.get("latido", 0)
+        pocas_avisadas = set(estado.get("pocas", []))
         log("Estado anterior recuperado.")
     except Exception:
-        anterior, ultimo_latido = {}, 0
+        anterior, ultimo_latido, pocas_avisadas = {}, 0, set()
     avisos = Avisos()
     vigila_codigo = VigilaCodigo()
     fin = time.time() + DURACION
@@ -442,11 +484,12 @@ def main():
             except Exception as e:
                 errores_seguidos += 1
                 log(f"Error con {url}: {e}")
-                if errores_seguidos >= 20 and not problema_avisado and not es_de_noche():
+                if errores_seguidos >= 20 and not problema_avisado:   # tambien de noche
                     problema_avisado = True
-                    enviar("Vigilante Gymshark: problema",
-                           f"Gymshark esta rechazando las consultas desde la nube ({e}).",
-                           "https://eu.gymshark.com/", 3, "warning")
+                    enviar("⚠️ Vigilante Gymshark: problema",
+                           f"Gymshark esta rechazando las consultas ({type(e).__name__}). "
+                           "Mientras dure, no puedo vigilar.",
+                           "https://github.com/Leoliarte8/gymshark-vigilante/actions", 4, "warning")
             avisos.procesar()
             time.sleep(1.5)
 
@@ -487,6 +530,7 @@ def main():
                                "Es obligatorio: el pedido tendra que esperar.", u, 2, "x")
 
             vigila_codigo.revisar(sesion, info, articulos)
+            revisar_pocas_unidades(info, articulos, pocas_avisadas)
             if time.time() - ultimo_latido >= LATIDO_CADA and not es_de_noche():
                 ultimo_latido = time.time()
                 try:   # el aviso de "sigo vivo" nunca debe parar la vigilancia
@@ -494,7 +538,8 @@ def main():
                 except Exception as e:
                     log(f"No pude mandar el aviso de 'sigo vivo': {type(e).__name__}")
             anterior = {u: info[u][2] for u in info}
-            ARCHIVO_ESTADO.write_text(json.dumps({"stock": anterior, "latido": ultimo_latido}),
+            ARCHIVO_ESTADO.write_text(json.dumps({"stock": anterior, "latido": ultimo_latido,
+                                                  "pocas": sorted(pocas_avisadas)}),
                                       encoding="utf-8")
 
         espera = time.time() + INTERVALO + random.uniform(0, 8)
