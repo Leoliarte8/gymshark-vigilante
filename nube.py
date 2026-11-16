@@ -85,7 +85,9 @@ def consultar(sesion, url):
     p = json.loads(m.group(1))["props"]["pageProps"]["productData"]["product"]
     stock = {v["size"].lower(): bool(v["inStock"]) for v in p["availableSizes"]}
     variantes = {v["size"].lower(): v["id"] for v in p["availableSizes"]}
-    return p["title"], p["colour"], stock, variantes
+    precios = {v["size"].lower(): float(v.get("price") or p.get("price") or 0)
+               for v in p["availableSizes"]}
+    return p["title"], p["colour"], stock, variantes, precios
 
 
 def descuento_de(sesion, variantes, codigo):
@@ -213,11 +215,11 @@ def elegir_codigo(sesion, cesta):
         pct = descuento_de(sesion, cesta, codigo)
         if pct:
             log(f"Codigo {nombre}: funciona ({pct:g} %).")
-            return codigo, f"con el codigo {nombre} ({pct:g} %) ya aplicado"
+            return codigo, f"con el codigo {nombre} ({pct:g} %) ya aplicado", pct
         if pct is None and dudoso is None:
-            dudoso = (codigo, f"con el codigo {nombre} (no pude comprobarlo: mira que salga el descuento)")
+            dudoso = (codigo, f"con el codigo {nombre} (no pude comprobarlo: mira que salga el descuento)", None)
         log(f"Codigo {nombre}: {'no se pudo comprobar' if pct is None else 'NO funciona'}.")
-    return dudoso or ("", "SIN codigo: ninguno funciona, ponlo a mano")
+    return dudoso or ("", "SIN codigo: ninguno funciona, ponlo a mano", 0)
 
 
 # Avisos urgentes (dia y noche), por orden de importancia. Cada uno salta cuando
@@ -250,6 +252,19 @@ def condicion_cumplida(condicion, articulos, stock_de):
     return all(valores)
 
 
+def euros(x):
+    return f"{x:.2f}".replace(".", ",") + " €"
+
+
+def precio_obligatorio(info, articulos, pct):
+    """Total de las cosas obligatorias (sin opcionales), con y sin descuento."""
+    total = sum(info[u][4].get(t, 0) for u, t, o in articulos if o)
+    txt = f"💶 Total obligatorio: {euros(total)}"
+    if pct:
+        txt += f" → con {pct:g} %: {euros(total * (1 - pct / 100))}"
+    return txt + " (sin opcionales ni envío)"
+
+
 def avisar_urgente(sesion, info, articulos, avisos, titulo, motivos):
     """Aviso urgente con la cesta preparada: todo lo vigilado que tenga stock ahora."""
     en_cesta = [(u, t) for u, t, _ in articulos if info[u][2].get(t)]
@@ -264,8 +279,9 @@ def avisar_urgente(sesion, info, articulos, avisos, titulo, motivos):
     # Aviso inmediato con el codigo principal (por si comprobarlo tarda), y luego
     # los repetidos ya con el codigo que de verdad funciona.
     enviar_urgente(titulo, motivos + ". Pulsa para pagar.", enlace_pago(cesta, CODIGO or RESPALDO))
-    codigo, codigo_txt = elegir_codigo(sesion, cesta)
-    texto = f"{motivos}. Cesta preparada {codigo_txt}:\n{lista}{faltan_txt}"
+    codigo, codigo_txt, pct = elegir_codigo(sesion, cesta)
+    texto = (f"{motivos}.\n{precio_obligatorio(info, articulos, pct)}\n"
+             f"Cesta preparada {codigo_txt}:\n{lista}{faltan_txt}")
     log(f"*** {titulo} *** " + texto.replace("\n", " | "))
     avisos.urgente(titulo, texto, enlace_pago(cesta, codigo))
 
