@@ -49,7 +49,7 @@ def log(msg):
 
 
 def es_de_noche():
-    return ahora().hour >= 23 or ahora().hour < 9
+    return ahora().hour < 8   # de 00:00 a 8:00
 
 
 def leer_productos():
