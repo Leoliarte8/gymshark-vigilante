@@ -85,9 +85,16 @@ def consultar(sesion, url):
     p = json.loads(m.group(1))["props"]["pageProps"]["productData"]["product"]
     stock = {v["size"].lower(): bool(v["inStock"]) for v in p["availableSizes"]}
     variantes = {v["size"].lower(): v["id"] for v in p["availableSizes"]}
-    precios = {v["size"].lower(): float(v.get("price") or p.get("price") or 0)
-               for v in p["availableSizes"]}
+    precios = {v["size"].lower(): _precio(v, p) for v in p["availableSizes"]}
     return p["title"], p["colour"], stock, variantes, precios
+
+
+def _precio(v, p):
+    """El precio es solo informativo: si viene raro, 0 (nunca rompe la lectura del stock)."""
+    try:
+        return float(str(v.get("price") or p.get("price") or 0).replace(",", ".").strip(" €$"))
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def descuento_de(sesion, variantes, codigo):
@@ -166,27 +173,60 @@ def enviar_urgente(titulo, texto, url):
     enviar(titulo, texto, url, 5, "rotating_light", acciones_urgentes(url))
 
 
+# Llamada de Telegram (CallMeBot, gratis): vibra sin parar mientras suena.
+TELEGRAM = os.environ.get("TELEGRAM_USUARIO", "").strip()
+LLAMADAS_MAX = 5
+LLAMADAS_CADA = 120   # segundos
+
+
+def llamar(texto):
+    if not TELEGRAM:
+        return
+    try:
+        r = requests.get("https://api.callmebot.com/start.php", timeout=60, params={
+            "user": TELEGRAM, "text": texto[:250], "lang": "es-ES-Standard-A",
+            "rpt": "3", "cc": "missed"})
+        log(f"Llamada de Telegram pedida (respuesta {r.status_code}).")
+    except Exception as e:   # el error podria llevar el usuario en la URL: no se muestra
+        log(f"No se pudo pedir la llamada de Telegram: {type(e).__name__}")
+
+
 class Avisos:
-    """Aviso urgente repetido sin frenar la vigilancia (se puede parar desde el movil)."""
+    """Aviso urgente repetido sin frenar la vigilancia (se puede parar desde el movil).
+    De noche, ademas, llamadas de Telegram cada 2 min hasta que pulses parar."""
 
     def __init__(self):
         self.pendientes = []   # [momento, titulo, texto, url, numero, total, pausa]
         self.desde = 0         # cuando empezo la tanda de avisos actual
+        self.llamadas = 0
+        self.proxima_llamada = 0
+        self.texto_llamada = ""
 
     def urgente(self, titulo, texto, url):
         # De noche: rafagas de 3 avisos cada 20 s durante 10 min (hasta que pulses parar).
         total, pausa = (30, 20) if es_de_noche() else (5, 60)
         if not self.pendientes:
             self.desde = time.time() - 30   # incluye el aviso inmediato previo
+            self.llamadas = 0 if es_de_noche() else LLAMADAS_MAX   # de dia no llama
+            self.proxima_llamada = time.time()
+            self.texto_llamada = (f"{titulo.replace('¡', '')} Despierta, hay reestock en Gymshark. "
+                                  "Mira las notificaciones del movil.")
         self.pendientes.append([time.time(), titulo, texto, url, 1, total, pausa])
         self.procesar()
 
     def procesar(self):
         listos = [a for a in self.pendientes if time.time() >= a[0]]
-        if any(a[4] > 1 for a in listos) and han_pedido_parar(self.desde):
-            log("Has pulsado parar en el movil: dejo de repetir los avisos.")
+        toca_llamar = (self.pendientes and self.llamadas < LLAMADAS_MAX
+                       and time.time() >= self.proxima_llamada)
+        if (any(a[4] > 1 for a in listos) or (toca_llamar and self.llamadas)) \
+                and han_pedido_parar(self.desde):
+            log("Has pulsado parar en el movil: dejo de repetir los avisos y las llamadas.")
             self.pendientes.clear()
             return
+        if toca_llamar:
+            self.llamadas += 1
+            self.proxima_llamada = time.time() + LLAMADAS_CADA
+            llamar(self.texto_llamada)
         for a in listos:
             momento, titulo, texto, url, n, total, pausa = a
             extra = f" (aviso {n}/{total}, pulsa parar para callarlo)" if n > 1 else ""
@@ -258,9 +298,12 @@ def euros(x):
 
 def precio_obligatorio(info, articulos, pct):
     """Total de las cosas obligatorias (sin opcionales), con y sin descuento."""
-    total = sum(info[u][4].get(t, 0) for u, t, o in articulos if o)
+    precios = [info[u][4].get(t, 0) for u, t, o in articulos if o]
+    if not precios or not all(precios):
+        return "💶 Total obligatorio: no lo pude calcular (míralo en la cesta)"
+    total = sum(precios)
     txt = f"💶 Total obligatorio: {euros(total)}"
-    if pct:
+    if pct and 0 < pct <= 100:
         txt += f" → con {pct:g} %: {euros(total * (1 - pct / 100))}"
     return txt + " (sin opcionales ni envío)"
 
