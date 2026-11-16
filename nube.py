@@ -15,6 +15,7 @@ import json
 import os
 import random
 import re
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -176,19 +177,27 @@ def enviar_urgente(titulo, texto, url):
 # Llamada de Telegram (CallMeBot, gratis): vibra sin parar mientras suena.
 TELEGRAM = os.environ.get("TELEGRAM_USUARIO", "").strip()
 LLAMADAS_MAX = 5
-LLAMADAS_CADA = 120   # segundos
+LLAMADAS_CADA = 120   # segundos entre llamadas hechas
+REINTENTO_LLAMADA = 20   # segundos si CallMeBot se salta la llamada (saturado)
 
 
 def llamar(texto):
+    """Devuelve True si CallMeBot ha hecho la llamada; False si la ha saltado o fallo."""
     if not TELEGRAM:
-        return
+        return True
     try:
         r = requests.get("https://api.callmebot.com/start.php", timeout=60, params={
             "user": TELEGRAM, "text": texto[:250], "lang": "es-ES-Standard-A",
             "rpt": "3", "cc": "missed"})
-        log(f"Llamada de Telegram pedida (respuesta {r.status_code}).")
     except Exception as e:   # el error podria llevar el usuario en la URL: no se muestra
         log(f"No se pudo pedir la llamada de Telegram: {type(e).__name__}")
+        return False
+    if r.status_code != 200 or "Error" in r.text or "skipped" in r.text:
+        motivo = "saturado (FLOOD)" if "FLOOD" in r.text else f"respuesta {r.status_code}"
+        log(f"CallMeBot no ha hecho la llamada: {motivo}. Reintento enseguida.")
+        return False
+    log("Llamada de Telegram hecha.")
+    return True
 
 
 class Avisos:
@@ -199,6 +208,8 @@ class Avisos:
         self.pendientes = []   # [momento, titulo, texto, url, numero, total, pausa]
         self.desde = 0         # cuando empezo la tanda de avisos actual
         self.llamadas = 0
+        self.intentos = 0
+        self.llamando = False
         self.proxima_llamada = 0
         self.texto_llamada = ""
 
@@ -208,6 +219,7 @@ class Avisos:
         if not self.pendientes:
             self.desde = time.time() - 30   # incluye el aviso inmediato previo
             self.llamadas = 0 if es_de_noche() else LLAMADAS_MAX   # de dia no llama
+            self.intentos = 0
             self.proxima_llamada = time.time()
             self.texto_llamada = (f"{titulo.replace('¡', '')} Despierta, hay reestock en Gymshark. "
                                   "Mira las notificaciones del movil.")
@@ -223,10 +235,23 @@ class Avisos:
             log("Has pulsado parar en el movil: dejo de repetir los avisos y las llamadas.")
             self.pendientes.clear()
             return
-        if toca_llamar:
-            self.llamadas += 1
-            self.proxima_llamada = time.time() + LLAMADAS_CADA
-            llamar(self.texto_llamada)
+        if toca_llamar and not self.llamando:
+            self.intentos += 1
+            self.llamando = True
+            self.proxima_llamada = float("inf")   # se fija al acabar la llamada
+
+            def hacer_llamada():   # en segundo plano: CallMeBot tarda hasta 1 min
+                try:
+                    if llamar(self.texto_llamada):
+                        self.llamadas += 1
+                        self.proxima_llamada = time.time() + LLAMADAS_CADA
+                    elif self.intentos >= 25:   # CallMeBot no responde: lo dejo (ntfy sigue)
+                        self.llamadas = LLAMADAS_MAX
+                    else:
+                        self.proxima_llamada = time.time() + REINTENTO_LLAMADA
+                finally:
+                    self.llamando = False
+            threading.Thread(target=hacer_llamada, daemon=True).start()
         for a in listos:
             momento, titulo, texto, url, n, total, pausa = a
             extra = f" (aviso {n}/{total}, pulsa parar para callarlo)" if n > 1 else ""
