@@ -324,14 +324,17 @@ def euros(x):
 
 def precio_obligatorio(info, articulos, pct):
     """Total de las cosas obligatorias (sin opcionales), con y sin descuento."""
-    precios = [info[u][4].get(t, 0) for u, t, o in articulos if o]
+    disponibles = [(u, t) for u, t, o in articulos if o and info[u][2].get(t)]
+    faltan = sum(1 for u, t, o in articulos if o and not info[u][2].get(t))
+    precios = [info[u][4].get(t, 0) for u, t in disponibles]
     if not precios or not all(precios):
         return "💶 Total obligatorio: no lo pude calcular (míralo en la cesta)"
     total = sum(precios)
-    txt = f"💶 Total obligatorio: {euros(total)}"
+    txt = f"💶 Total obligatorio disponible: {euros(total)}"
     if pct and 0 < pct <= 100:
         txt += f" → con {pct:g} %: {euros(total * (1 - pct / 100))}"
-    return txt + " (sin opcionales ni envío)"
+    txt += " (sin opcionales ni envío"
+    return txt + (f"; faltan {faltan} obligatorios sin stock)" if faltan else ")")
 
 
 def avisar_urgente(sesion, info, articulos, avisos, titulo, motivos):
