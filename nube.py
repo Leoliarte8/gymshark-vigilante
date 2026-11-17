@@ -338,10 +338,12 @@ def precio_obligatorio(info, articulos, pct):
     if not precios or not all(precios):
         return "💶 Total obligatorio: no lo pude calcular (míralo en la cesta)"
     total = sum(precios)
-    txt = f"💶 Total obligatorio disponible: {euros(total)}"
     if pct and 0 < pct <= 100:
-        txt += f" → con {pct:g} %: {euros(total * (1 - pct / 100))}"
-    txt += " (sin opcionales ni envío"
+        txt = (f"💶 A PAGAR con el código (-{pct:g} %): {euros(total * (1 - pct / 100))}"
+               f" (sin código: {euros(total)}")
+    else:
+        txt = f"💶 A PAGAR (sin código de descuento): {euros(total)} ("
+    txt += ("; " if pct and 0 < pct <= 100 else "") + "obligatorios disponibles, sin opcionales ni envío"
     return txt + (f"; faltan {faltan} obligatorios sin stock)" if faltan else ")")
 
 
