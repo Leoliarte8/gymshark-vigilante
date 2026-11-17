@@ -309,7 +309,10 @@ URGENTES = [
     ("¡Pantalon y Collegiate a la vez!", "Pumper Pants XS y Collegiate Tech Hoodie XS con stock",
      [("straight-leg-pumper-pants", "xs"), ("collegiate-tech-hoodie", "xs")]),
     ("¡Ha vuelto la Devant azul!", "Devant manga larga azul XS repuesta (va con el pantalon)",
-     [("devant-seamless-long-sleeve-t-shirt-ls-tops-blue", "xs")]),
+     [("devant-seamless-long-sleeve-t-shirt-ls-tops-blue", "xs")],
+     # cesta solo con estas cosas (sin calcetines ni nada mas)
+     [("devant-seamless-long-sleeve-t-shirt-ls-tops-blue", "xs"),
+      ("straight-leg-pumper-pants", "xs")]),
 ]
 
 
@@ -361,8 +364,12 @@ def precio_cesta(info, en_cesta, pct):
     return f"🛒 TOTAL CESTA (sin código): {euros(total)} (sin envío)"
 
 
-def avisar_urgente(sesion, info, articulos, avisos, titulo, motivos):
-    """Aviso urgente con la cesta preparada: todo lo vigilado que tenga stock ahora."""
+def avisar_urgente(sesion, info, articulos, avisos, titulo, motivos, solo=None):
+    """Aviso urgente con la cesta preparada: todo lo vigilado que tenga stock ahora
+    (o, si se pasa `solo`, unicamente esas cosas)."""
+    if solo:
+        articulos = [(u, t, o) for u, t, o in articulos
+                     if any(trozo in u and t == talla for trozo, talla in solo)]
     en_cesta = [(u, t) for u, t, _ in articulos if info[u][2].get(t)]
     faltan = [(u, t, o) for u, t, o in articulos if not info[u][2].get(t)]
     cesta = [info[u][3][t] for u, t in en_cesta]
@@ -376,8 +383,8 @@ def avisar_urgente(sesion, info, articulos, avisos, titulo, motivos):
     # los repetidos ya con el codigo que de verdad funciona.
     enviar_urgente(titulo, motivos + ". Pulsa para pagar.", enlace_pago(cesta, CODIGO or RESPALDO))
     codigo, codigo_txt, pct = elegir_codigo(sesion, cesta)
-    texto = (f"{motivos}.\n{precio_cesta(info, en_cesta, pct)}\n"
-             f"{precio_obligatorio(info, articulos, pct)}\n"
+    obligatorio = "" if solo else precio_obligatorio(info, articulos, pct) + "\n"
+    texto = (f"{motivos}.\n{precio_cesta(info, en_cesta, pct)}\n{obligatorio}"
              f"Cesta preparada {codigo_txt}:\n{lista}{faltan_txt}")
     log(f"*** {titulo} *** " + texto.replace("\n", " | "))
     avisos.urgente(titulo, texto, enlace_pago(cesta, codigo))
@@ -513,17 +520,19 @@ def main():
         if all(u in info for u, _, _ in articulos):   # solo decide con datos completos
             # 1) Avisos urgentes: se manda solo el mas importante de los que salten.
             disparados = []
-            for titulo, motivo, condicion in URGENTES:
+            for titulo, motivo, condicion, *solo in URGENTES:
                 ahora_si = condicion_cumplida(condicion, articulos,
                                               lambda u, t: info[u][2].get(t, False))
                 antes_si = condicion_cumplida(condicion, articulos,
                                               lambda u, t: anterior.get(u, {}).get(t))
                 if ahora_si and antes_si is False:
-                    disparados.append((titulo, motivo))
+                    disparados.append((titulo, motivo, solo[0] if solo else None))
             if disparados:
                 completo = disparados[0][0] == URGENTES[0][0]
-                motivos = disparados[0][1] if completo else " + ".join(m for _, m in disparados)
-                avisar_urgente(sesion, info, articulos, avisos, disparados[0][0], motivos)
+                motivos = disparados[0][1] if completo else " + ".join(m for _, m, _ in disparados)
+                # cesta reducida solo si es el unico aviso que salta
+                solo = disparados[0][2] if len(disparados) == 1 else None
+                avisar_urgente(sesion, info, articulos, avisos, disparados[0][0], motivos, solo)
 
             # 2) Avisos discretos: solo de dia y si no ha saltado uno urgente.
             discretos = not disparados and not es_de_noche()
