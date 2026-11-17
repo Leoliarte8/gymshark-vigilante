@@ -308,6 +308,8 @@ URGENTES = [
      [("vengeance-t-shirt-ss-tops-grey", "xs")]),
     ("¡Pantalon y Collegiate a la vez!", "Pumper Pants XS y Collegiate Tech Hoodie XS con stock",
      [("straight-leg-pumper-pants", "xs"), ("collegiate-tech-hoodie", "xs")]),
+    ("¡Ha vuelto la Devant azul!", "Devant manga larga azul XS repuesta (va con el pantalon)",
+     [("devant-seamless-long-sleeve-t-shirt-ls-tops-blue", "xs")]),
 ]
 
 
@@ -347,6 +349,18 @@ def precio_obligatorio(info, articulos, pct):
     return txt + (f"; faltan {faltan} obligatorios sin stock)" if faltan else ")")
 
 
+def precio_cesta(info, en_cesta, pct):
+    """Total de todo lo que va en la cesta preparada (opcionales incluidos)."""
+    precios = [info[u][4].get(t, 0) for u, t in en_cesta]
+    if not precios or not all(precios):
+        return "🛒 Total de la cesta: míralo al abrirla"
+    total = sum(precios)
+    if pct and 0 < pct <= 100:
+        return (f"🛒 TOTAL CESTA con el código (-{pct:g} %): {euros(total * (1 - pct / 100))}"
+                f" (sin código: {euros(total)}; sin envío)")
+    return f"🛒 TOTAL CESTA (sin código): {euros(total)} (sin envío)"
+
+
 def avisar_urgente(sesion, info, articulos, avisos, titulo, motivos):
     """Aviso urgente con la cesta preparada: todo lo vigilado que tenga stock ahora."""
     en_cesta = [(u, t) for u, t, _ in articulos if info[u][2].get(t)]
@@ -362,7 +376,8 @@ def avisar_urgente(sesion, info, articulos, avisos, titulo, motivos):
     # los repetidos ya con el codigo que de verdad funciona.
     enviar_urgente(titulo, motivos + ". Pulsa para pagar.", enlace_pago(cesta, CODIGO or RESPALDO))
     codigo, codigo_txt, pct = elegir_codigo(sesion, cesta)
-    texto = (f"{motivos}.\n{precio_obligatorio(info, articulos, pct)}\n"
+    texto = (f"{motivos}.\n{precio_cesta(info, en_cesta, pct)}\n"
+             f"{precio_obligatorio(info, articulos, pct)}\n"
              f"Cesta preparada {codigo_txt}:\n{lista}{faltan_txt}")
     log(f"*** {titulo} *** " + texto.replace("\n", " | "))
     avisos.urgente(titulo, texto, enlace_pago(cesta, codigo))
