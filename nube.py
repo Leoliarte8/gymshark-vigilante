@@ -308,10 +308,10 @@ URGENTES = [
      [("vengeance-t-shirt-ss-tops-grey", "xs")]),
     ("¡Pantalon y Collegiate a la vez!", "Pumper Pants XS y Collegiate Tech Hoodie XS con stock",
      [("straight-leg-pumper-pants", "xs"), ("collegiate-tech-hoodie", "xs")]),
-    ("¡Ha vuelto la Devant azul!", "Devant manga larga azul XS repuesta (va con el pantalon)",
-     [("devant-seamless-long-sleeve-t-shirt-ls-tops-blue", "xs")],
+    ("¡Ha vuelto la Devant negra!", "Devant manga larga negra XS repuesta (va con el pantalon)",
+     [("devant-seamless-long-sleeve-t-shirt-ls-tops-black", "xs")],
      # cesta solo con estas cosas (sin calcetines ni nada mas)
-     [("devant-seamless-long-sleeve-t-shirt-ls-tops-blue", "xs"),
+     [("devant-seamless-long-sleeve-t-shirt-ls-tops-black", "xs"),
       ("straight-leg-pumper-pants", "xs")]),
 ]
 
