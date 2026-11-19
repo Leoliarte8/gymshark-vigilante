@@ -306,13 +306,10 @@ URGENTES = [
      [("vengeance-t-shirt-ss-tops-black", "xs")]),
     ("¡Ha vuelto la Vengeance gris!", "Vengeance gris XS repuesta",
      [("vengeance-t-shirt-ss-tops-grey", "xs")]),
-    ("¡Pantalon y Collegiate a la vez!", "Pumper Pants XS y Collegiate Tech Hoodie XS con stock",
-     [("straight-leg-pumper-pants", "xs"), ("collegiate-tech-hoodie", "xs")]),
-    ("¡Ha vuelto la Devant negra!", "Devant manga larga negra XS repuesta (va con el pantalon)",
-     [("devant-seamless-long-sleeve-t-shirt-ls-tops-black", "xs")],
-     # cesta solo con estas cosas (sin calcetines ni nada mas)
-     [("devant-seamless-long-sleeve-t-shirt-ls-tops-black", "xs"),
-      ("straight-leg-pumper-pants", "xs")]),
+    ("¡Ha vuelto la Collegiate!", "Collegiate Tech Hoodie XS repuesta",
+     [("collegiate-tech-hoodie", "xs")]),
+    ("¡Ha vuelto la Devant negra!", "Devant manga larga negra XS repuesta",
+     [("devant-seamless-long-sleeve-t-shirt-ls-tops-black", "xs")]),
 ]
 
 
@@ -340,7 +337,9 @@ def precio_obligatorio(info, articulos, pct):
     disponibles = [(u, t) for u, t, o in articulos if o and info[u][2].get(t)]
     faltan = sum(1 for u, t, o in articulos if o and not info[u][2].get(t))
     precios = [info[u][4].get(t, 0) for u, t in disponibles]
-    if not precios or not all(precios):
+    if not precios:
+        return f"💶 De los obligatorios aún no hay ninguno con stock (faltan {faltan})"
+    if not all(precios):
         return "💶 Total obligatorio: no lo pude calcular (míralo en la cesta)"
     total = sum(precios)
     if pct and 0 < pct <= 100:
