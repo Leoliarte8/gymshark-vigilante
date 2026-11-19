@@ -14,4 +14,4 @@ https://eu.gymshark.com/es-ES/products/gymshark-collegiate-tech-hoodie-pullovers
 # --- Opcionales ---
 https://eu.gymshark.com/es-ES/products/gymshark-vengeance-t-shirt-ss-tops-black-aw26 | m | opcional
 https://eu.gymshark.com/es-ES/products/gymshark-glsc-hoodie-pullovers-blue-aw26 | xs | opcional
-https://eu.gymshark.com/es-ES/products/gymshark-devant-seamless-long-sleeve-t-shirt-ls-tops-black-aw26 | xs | opcional
+https://eu.gymshark.com/es-ES/products/gymshark-devant-seamless-long-sleeve-t-shirt-ls-tops-black-aw26 | xs | obligatorio

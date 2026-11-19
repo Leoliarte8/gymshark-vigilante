@@ -300,17 +300,14 @@ def elegir_codigo(sesion, cesta):
 # su condicion pasa de no cumplirse a cumplirse. Una condicion es una lista de
 # (trozo de la URL del producto, talla) que tienen que tener stock A LA VEZ;
 # None = todos los obligatorios de productos.txt.
-URGENTES = [
-    ("¡PEDIDO COMPLETO! Gymshark", "Esta todo lo importante a la vez", None),
-    ("¡Ha vuelto la Vengeance negra!", "Vengeance negra XS repuesta",
-     [("vengeance-t-shirt-ss-tops-black", "xs")]),
-    ("¡Ha vuelto la Vengeance gris!", "Vengeance gris XS repuesta",
-     [("vengeance-t-shirt-ss-tops-grey", "xs")]),
-    ("¡Ha vuelto la Collegiate!", "Collegiate Tech Hoodie XS repuesta",
-     [("collegiate-tech-hoodie", "xs")]),
-    ("¡Ha vuelto la Devant negra!", "Devant manga larga negra XS repuesta",
-     [("devant-seamless-long-sleeve-t-shirt-ls-tops-black", "xs")]),
-]
+def urgentes(info, articulos):
+    """Avisos urgentes: el pedido completo, y cualquier obligatorio que vuelva."""
+    lista = [("¡PEDIDO COMPLETO! Gymshark", "Esta todo lo importante a la vez", None)]
+    for u, t, o in articulos:
+        if o:
+            nombre = nombre_de(info, u, t)
+            lista.append((f"¡Ha vuelto: {nombre}!", f"{nombre} repuesta", [(u, t)]))
+    return lista
 
 
 def condicion_cumplida(condicion, articulos, stock_de):
@@ -519,6 +516,7 @@ def main():
         if all(u in info for u, _, _ in articulos):   # solo decide con datos completos
             # 1) Avisos urgentes: se manda solo el mas importante de los que salten.
             disparados = []
+            URGENTES = urgentes(info, articulos)
             for titulo, motivo, condicion, *solo in URGENTES:
                 ahora_si = condicion_cumplida(condicion, articulos,
                                               lambda u, t: info[u][2].get(t, False))
